@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Event Planning Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Arial", sans-serif;
+        background-color: #f5f5f5;
+        color: #333;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      h1 {
+        text-align: center;
+        color: #2c3e50;
+        margin-bottom: 30px;
+      }
+
+      .dashboard {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+
+      .panel {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .panel h2 {
+        color: #3498db;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 10px;
+      }
+
+      .event-card {
+        background: #f8f9fa;
+        border-radius: 5px;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-left: 4px solid #3498db;
+      }
+
+      .event-card h3 {
+        color: #2c3e50;
+        margin-bottom: 8px;
+      }
+
+      .event-info {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 5px 10px;
+        font-size: 14px;
+      }
+
+      .label {
+        font-weight: bold;
+        color: #7f8c8d;
+      }
+
+      .response-summary {
+        display: flex;
+        justify-content: space-around;
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #ecf0f1;
+      }
+
+      .response-item {
+        text-align: center;
+      }
+
+      .response-count {
+        font-size: 24px;
+        font-weight: bold;
+        display: block;
+      }
+
+      .response-label {
+        font-size: 12px;
+        color: #7f8c8d;
+      }
+
+      .yes {
+        color: #27ae60;
+      }
+      .no {
+        color: #e74c3c;
+      }
+      .maybe {
+        color: #f39c12;
+      }
+      .pending {
+        color: #95a5a6;
+      }
+
+      .status {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 10px 20px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: bold;
+      }
+
+      .status.connected {
+        background: #27ae60;
+        color: white;
+      }
+
+      .status.disconnected {
+        background: #e74c3c;
+        color: white;
+      }
+
+      .guest-list {
+        margin-top: 15px;
+      }
+
+      .guest-response {
+        padding: 8px;
+        margin: 5px 0;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+
+      .guest-response.yes {
+        background: #d5f4e6;
+        border-left: 3px solid #27ae60;
+      }
+
+      .guest-response.no {
+        background: #fce4e4;
+        border-left: 3px solid #e74c3c;
+      }
+
+      .guest-response.maybe {
+        background: #fef5e7;
+        border-left: 3px solid #f39c12;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="status disconnected" id="status">Disconnected</div>
+
+    <div class="container">
+      <h1>🎉 Event Planning System Dashboard</h1>
+
+      <div class="dashboard">
+        <div class="panel">
+          <h2>📅 Active Events</h2>
+          <div id="events-container">
+            <p style="color: #95a5a6; text-align: center">
+              Waiting for events...
+            </p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>📊 Live Statistics</h2>
+          <div id="stats-container">
+            <p style="color: #95a5a6; text-align: center">No data yet...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const socket = io();
+      const eventsContainer = document.getElementById("events-container");
+      const statsContainer = document.getElementById("stats-container");
+      const statusElement = document.getElementById("status");
+
+      // Store current data
+      let eventsData = {};
+      let responsesData = {};
+
+      socket.on("connect", () => {
+        statusElement.textContent = "Connected";
+        statusElement.className = "status connected";
+      });
+
+      socket.on("disconnect", () => {
+        statusElement.textContent = "Disconnected";
+        statusElement.className = "status disconnected";
+      });
+
+      socket.on("new_event", (event) => {
+        eventsData[event.event_id] = event;
+        updateDisplay();
+      });
+
+      socket.on("new_response", (response) => {
+        if (!responsesData[response.event_id]) {
+          responsesData[response.event_id] = [];
+        }
+        responsesData[response.event_id].push(response);
+        updateDisplay();
+      });
+
+      socket.on("update_data", (data) => {
+        if (data.events) {
+          data.events.forEach((event) => {
+            eventsData[event.event_id] = event;
+          });
+        }
+        if (data.responses) {
+          data.responses.forEach((response) => {
+            if (!responsesData[response.event_id]) {
+              responsesData[response.event_id] = [];
+            }
+            responsesData[response.event_id].push(response);
+          });
+        }
+        updateDisplay();
+      });
+
+      function updateDisplay() {
+        // Update events
+        if (Object.keys(eventsData).length === 0) {
+          eventsContainer.innerHTML =
+            '<p style="color: #95a5a6; text-align: center;">Waiting for events...</p>';
+        } else {
+          eventsContainer.innerHTML = "";
+          Object.values(eventsData).forEach((event) => {
+            const responses = responsesData[event.event_id] || [];
+            const eventCard = createEventCard(event, responses);
+            eventsContainer.appendChild(eventCard);
+          });
+        }
+
+        // Update statistics
+        updateStatistics();
+      }
+
+      function createEventCard(event, responses) {
+        const card = document.createElement("div");
+        card.className = "event-card";
+
+        const counts = {
+          yes: responses.filter((r) => r.response === "Yes").length,
+          no: responses.filter((r) => r.response === "No").length,
+          maybe: responses.filter((r) => r.response === "Maybe").length,
+        };
+
+        card.innerHTML = `
+                <h3>${event.event_name}</h3>
+                <div class="event-info">
+                    <span class="label">Host:</span>
+                    <span>${event.host_name}</span>
+                    <span class="label">Date:</span>
+                    <span>${new Date(event.date_time).toLocaleString()}</span>
+                    <span class="label">Location:</span>
+                    <span>${event.location}</span>
+                </div>
+                <div class="response-summary">
+                    <div class="response-item">
+                        <span class="response-count yes">${counts.yes}</span>
+                        <span class="response-label">Attending</span>
+                    </div>
+                    <div class="response-item">
+                        <span class="response-count no">${counts.no}</span>
+                        <span class="response-label">Not Attending</span>
+                    </div>
+                    <div class="response-item">
+                        <span class="response-count maybe">${
+                          counts.maybe
+                        }</span>
+                        <span class="response-label">Maybe</span>
+                    </div>
+                </div>
+            `;
+
+        return card;
+      }
+
+      function updateStatistics() {
+        const totalEvents = Object.keys(eventsData).length;
+        let totalResponses = 0;
+        let totalYes = 0;
+        let totalNo = 0;
+        let totalMaybe = 0;
+
+        Object.values(responsesData).forEach((responses) => {
+          responses.forEach((response) => {
+            totalResponses++;
+            if (response.response === "Yes") totalYes++;
+            else if (response.response === "No") totalNo++;
+            else if (response.response === "Maybe") totalMaybe++;
+          });
+        });
+
+        statsContainer.innerHTML = `
+                <div style="text-align: center; padding: 20px;">
+                    <h3 style="color: #2c3e50; margin-bottom: 20px;">Overall Statistics</h3>
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                        <div>
+                            <div style="font-size: 36px; font-weight: bold; color: #3498db;">${totalEvents}</div>
+                            <div style="color: #7f8c8d;">Total Events</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 36px; font-weight: bold; color: #9b59b6;">${totalResponses}</div>
+                            <div style="color: #7f8c8d;">Total Responses</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 30px;">
+                        <h4 style="color: #34495e; margin-bottom: 15px;">Response Breakdown</h4>
+                        <div style="display: flex; justify-content: space-around;">
+                            <div>
+                                <div class="response-count yes">${totalYes}</div>
+                                <div class="response-label">Yes</div>
+                            </div>
+                            <div>
+                                <div class="response-count no">${totalNo}</div>
+                                <div class="response-label">No</div>
+                            </div>
+                            <div>
+                                <div class="response-count maybe">${totalMaybe}</div>
+                                <div class="response-label">Maybe</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+      }
+    </script>
+  </body>
+</html>
